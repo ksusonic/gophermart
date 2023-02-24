@@ -4,7 +4,9 @@ go 1.19
 
 require (
 	github.com/caarlos0/env/v7 v7.0.0
+	github.com/gin-contrib/gzip v0.0.6
 	github.com/gin-gonic/gin v1.9.0
+	github.com/jackc/pgx/v5 v5.3.0
 	go.uber.org/zap v1.24.0
 )
 
@@ -16,6 +18,9 @@ require (
 	github.com/go-playground/universal-translator v0.18.1 // indirect
 	github.com/go-playground/validator/v10 v10.11.2 // indirect
 	github.com/goccy/go-json v0.10.0 // indirect
+	github.com/google/go-cmp v0.5.8 // indirect
+	github.com/jackc/pgpassfile v1.0.0 // indirect
+	github.com/jackc/pgservicefile v0.0.0-20221227161230-091c0ba34f0a // indirect
 	github.com/json-iterator/go v1.1.12 // indirect
 	github.com/klauspost/cpuid/v2 v2.2.4 // indirect
 	github.com/leodido/go-urn v1.2.1 // indirect

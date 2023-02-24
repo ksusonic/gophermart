@@ -2,11 +2,11 @@ package main
 
 import (
 	"log"
-	"net/http"
 
 	"github.com/ksusonic/gophermart/internal/config"
+	"github.com/ksusonic/gophermart/internal/controller"
+	"github.com/ksusonic/gophermart/internal/server"
 
-	"github.com/gin-gonic/gin"
 	"go.uber.org/zap"
 )
 
@@ -19,20 +19,16 @@ func main() {
 	logger := initLogger(cfg.Debug)
 	defer logger.Sync()
 
-	if cfg.Debug {
-		logger.Debugf("loaded cfg: %s", cfg)
-		gin.SetMode(gin.DebugMode)
-	} else {
-		gin.SetMode(gin.ReleaseMode)
-	}
+	s := server.NewServer(cfg, logger)
 
-	r := gin.Default()
-	r.GET("/ping", func(c *gin.Context) {
-		c.JSON(http.StatusOK, gin.H{
-			"message": "pong",
-		})
-	})
-	r.Run()
+	s.MountController("/user", controller.NewUserController(
+		logger.Named("user"),
+	))
+	s.MountController("/orders", controller.NewOrdersController(
+		logger.Named("orders"),
+	))
+
+	logger.Fatal(s.Run(cfg.Address))
 }
 
 func initLogger(debug bool) *zap.SugaredLogger {

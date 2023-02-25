@@ -18,11 +18,12 @@ func main() {
 	logger := initLogger(cfg.Debug)
 	defer logger.Sync()
 
-	db := database.NewDB(cfg.DatabaseURI, logger.Named("DB"))
+	db := database.NewDB(cfg.DatabaseURI, logger.Named("orm"))
 
 	s := server.NewServer(cfg, logger)
 
 	s.MountController("/user", controller.NewUserController(
+		cfg.Address,
 		db,
 		logger.Named("user"),
 	))
@@ -37,6 +38,7 @@ func main() {
 func initLogger(debug bool) *zap.SugaredLogger {
 	if debug {
 		logger, _ := zap.NewDevelopment()
+		logger.Level()
 		return logger.Sugar()
 	} else {
 		logger, _ := zap.NewProduction()

@@ -10,7 +10,7 @@ import (
 )
 
 type DB struct {
-	DB *gorm.DB
+	Orm *gorm.DB
 }
 
 func NewDB(dbConnect string, logger *zap.SugaredLogger) *DB {
@@ -25,6 +25,7 @@ func NewDB(dbConnect string, logger *zap.SugaredLogger) *DB {
 	if err := db.AutoMigrate(&models.Order{}); err != nil {
 		logger.Fatalf("could not migrate Order: %v", err)
 	}
+	logger.Debug("successfully migrated")
 
-	return &DB{DB: db}
+	return &DB{Orm: db}
 }

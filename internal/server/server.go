@@ -7,6 +7,8 @@ import (
 	"go.uber.org/zap"
 )
 
+const apiPrefix = "/api"
+
 type Server struct {
 	Engine *gin.Engine
 	logger *zap.SugaredLogger
@@ -24,6 +26,8 @@ func NewServer(cfg *config.Config, logger *zap.SugaredLogger) *Server {
 
 	r.Use(gzip.Gzip(gzip.DefaultCompression))
 
+	_ = r.SetTrustedProxies([]string{})
+
 	return &Server{
 		Engine: r,
 		logger: logger,
@@ -35,7 +39,7 @@ type Controller interface {
 }
 
 func (s *Server) MountController(path string, controller Controller) {
-	controller.RegisterHandlers(s.Engine.Group(path))
+	controller.RegisterHandlers(s.Engine.Group(apiPrefix + path))
 }
 
 func (s *Server) Run(address string) error {

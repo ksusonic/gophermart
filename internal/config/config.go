@@ -18,7 +18,7 @@ type Config struct {
 func NewConfig() (*Config, error) {
 	var cfg Config
 
-	flag.StringVar(&cfg.Address, "a", "0.0.0.0:8080", "serve address")
+	flag.StringVar(&cfg.Address, "a", ":8080", "serve address")
 	flag.StringVar(&cfg.DatabaseURI, "d", "", "db connect string")
 	flag.StringVar(&cfg.AccrualAddress, "r", "", "cash calculations system address")
 	flag.BoolVar(&cfg.Debug, "debug", false, "debug mode")

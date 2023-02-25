@@ -2,15 +2,13 @@ package controller
 
 import (
 	"github.com/gin-gonic/gin"
+	"github.com/ksusonic/gophermart/internal/database"
 	"go.uber.org/zap"
 )
 
-type Storage interface {
-}
-
 type Controller struct {
-	Logger  *zap.SugaredLogger
-	Storage Storage
+	DB     *database.DB
+	Logger *zap.SugaredLogger
 }
 
 func (c Controller) RegisterHandlers(*gin.RouterGroup) {

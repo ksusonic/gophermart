@@ -2,19 +2,23 @@ package controller
 
 import (
 	"github.com/gin-gonic/gin"
+	"github.com/ksusonic/gophermart/internal/database"
 	"go.uber.org/zap"
 )
 
 type UserController struct {
 	Controller
+	jwtToken []byte
 }
 
-func NewUserController(logger *zap.SugaredLogger) *UserController {
+func NewUserController(db *database.DB, logger *zap.SugaredLogger) *UserController {
 	return &UserController{
 		Controller: Controller{
+			DB:     db,
 			Logger: logger,
-			//Storage: storage,
-		}}
+		},
+		jwtToken: []byte("none"),
+	}
 }
 
 func (c *UserController) RegisterHandlers(router *gin.RouterGroup) {

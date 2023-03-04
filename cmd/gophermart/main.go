@@ -1,6 +1,7 @@
 package main
 
 import (
+	"github.com/ksusonic/gophermart/internal/auth"
 	"github.com/ksusonic/gophermart/internal/config"
 	"github.com/ksusonic/gophermart/internal/controller"
 	"github.com/ksusonic/gophermart/internal/database"
@@ -22,8 +23,10 @@ func main() {
 
 	s := server.NewServer(cfg, logger)
 
+	authController := auth.NewAuthController(cfg.JwtKey)
 	s.MountController("/user", controller.NewUserController(
 		cfg.Address,
+		authController,
 		db,
 		logger.Named("user"),
 	))

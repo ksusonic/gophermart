@@ -6,6 +6,7 @@ import (
 
 	"github.com/ksusonic/gophermart/internal/database"
 	"github.com/ksusonic/gophermart/internal/models"
+	"github.com/ksusonic/gophermart/internal/utils"
 
 	"github.com/gin-gonic/gin"
 	"go.uber.org/zap"
@@ -13,30 +14,39 @@ import (
 
 type UserController struct {
 	Controller
-	host     string
-	jwtToken []byte
+
+	host string
+	auth AuthController
 }
 
-func NewUserController(host string, db *database.DB, logger *zap.SugaredLogger) *UserController {
+type AuthController interface {
+	IsAuthorized() gin.HandlerFunc
+	CreateSignedJWT(claims models.Claims, expiresAt time.Time) (string, error)
+}
+
+func NewUserController(host string, auth AuthController, db *database.DB, logger *zap.SugaredLogger) *UserController {
 	return &UserController{
 		Controller: Controller{
 			DB:     db,
 			Logger: logger,
 		},
-		host:     host,
-		jwtToken: getJwtToken(),
+		host: host,
+		auth: auth,
 	}
 }
 
 func (c *UserController) RegisterHandlers(router *gin.RouterGroup) {
 	router.POST("/register", c.registerHandler)
 	router.POST("/login", c.loginHandler)
-	router.POST("/orders", c.ordersPostHandler)
 
-	router.GET("/orders", c.ordersGetHandler)
-	router.GET("/balance", c.balanceHandler)
-	router.GET("/balance/withdraw", c.balanceWithdrawHandler)
-	router.GET("/withdrawals", c.withdrawalsHandler)
+	authOnly := router.Group("")
+	authOnly.Use(c.auth.IsAuthorized())
+
+	authOnly.POST("/orders", c.ordersPostHandler)
+	authOnly.GET("/orders", c.ordersGetHandler)
+	authOnly.GET("/balance", c.balanceHandler)
+	authOnly.GET("/balance/withdraw", c.balanceWithdrawHandler)
+	authOnly.GET("/withdrawals", c.withdrawalsHandler)
 }
 
 func (c *UserController) registerHandler(ctx *gin.Context) {
@@ -57,8 +67,9 @@ func (c *UserController) registerHandler(ctx *gin.Context) {
 	}
 
 	var err error
-	user.Password, err = hashPassword(user.Password, c.Logger)
+	user.Password, err = utils.GenerateHashPassword(user.Password)
 	if err != nil {
+		c.Logger.Warnf("could not hash password: %v", err)
 		ctx.JSON(http.StatusBadRequest, gin.H{"error": "could not generate password hash"})
 		return
 	}
@@ -82,15 +93,16 @@ func (c *UserController) loginHandler(ctx *gin.Context) {
 		return
 	}
 
-	errHash := compareHash(user.Password, existingUser.Password)
-
+	errHash := utils.CompareHashPassword(user.Password, existingUser.Password)
 	if !errHash {
 		ctx.JSON(400, gin.H{"error": "invalid password"})
 		return
 	}
 
 	expiresAt := time.Now().Add(120 * time.Minute)
-	signedToken, err := createJWT(user.Login, expiresAt)
+	signedToken, err := c.auth.CreateSignedJWT(models.Claims{
+		Login: user.Login,
+	}, expiresAt)
 	if err != nil {
 		ctx.JSON(500, gin.H{"error": "could not generate token"})
 		return

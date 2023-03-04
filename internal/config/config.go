@@ -12,7 +12,8 @@ type Config struct {
 	DatabaseURI    string `env:"DATABASE_URI"`
 	AccrualAddress string `env:"ACCRUAL_SYSTEM_ADDRESS"`
 
-	Debug bool `env:"DEBUG"`
+	Debug  bool   `env:"DEBUG"`
+	JwtKey string `env:"JWT_TOKEN"`
 }
 
 func NewConfig() (*Config, error) {

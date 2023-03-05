@@ -4,6 +4,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/ksusonic/gophermart/internal/api"
 	"github.com/ksusonic/gophermart/internal/database"
 	"github.com/ksusonic/gophermart/internal/models"
 	"github.com/ksusonic/gophermart/internal/utils"
@@ -95,21 +96,21 @@ func (c *UserController) loginHandler(ctx *gin.Context) {
 
 	errHash := utils.CompareHashPassword(user.Password, existingUser.Password)
 	if !errHash {
-		ctx.JSON(400, gin.H{"error": "invalid password"})
+		ctx.JSON(http.StatusBadRequest, gin.H{"error": "invalid password"})
 		return
 	}
 
 	expiresAt := time.Now().Add(120 * time.Minute)
 	signedToken, err := c.auth.CreateSignedJWT(models.Claims{
-		Login: user.Login,
+		UserID: existingUser.ID,
 	}, expiresAt)
 	if err != nil {
-		ctx.JSON(500, gin.H{"error": "could not generate token"})
+		ctx.JSON(http.StatusInternalServerError, gin.H{"error": "could not generate token"})
 		return
 	}
 
-	ctx.SetCookie("token", signedToken, int(expiresAt.Unix()), "/", c.host, false, true)
-	ctx.JSON(200, gin.H{"success": "logged in"})
+	ctx.SetCookie("Authorization", signedToken, int(expiresAt.Unix()), "/", c.host, false, true)
+	ctx.JSON(http.StatusOK, gin.H{"success": "logged in"})
 }
 
 func (c *UserController) ordersPostHandler(ctx *gin.Context) {
@@ -117,11 +118,46 @@ func (c *UserController) ordersPostHandler(ctx *gin.Context) {
 }
 
 func (c *UserController) ordersGetHandler(ctx *gin.Context) {
-	// auth-only
+	userId := getUserIdOrPanic(ctx, c.Logger)
+
+	var orders []models.Order
+	err := c.DB.Orm.Model(&models.Order{}).Where("user_id = ?", userId).Find(&orders).Error
+	if err != nil {
+		c.Logger.Error("error retrieving orders:", err)
+		ctx.JSON(http.StatusInternalServerError, gin.H{"error": "could not get orders"})
+		return
+	}
+
+	response := make([]api.Order, len(orders))
+	for i := range orders {
+		response[i] = api.Order{
+			Number:     orders[i].Number,
+			Status:     orders[i].Status,
+			UploadedAt: orders[i].CreatedAt.Format(time.RFC3339),
+		}
+		if orders[i].Accrual.Valid {
+			response[i].Accrual = orders[i].Accrual.Int64
+		}
+	}
+
+	ctx.JSON(http.StatusOK, response)
 }
 
 func (c *UserController) balanceHandler(ctx *gin.Context) {
-	// auth-only
+	userId := getUserIdOrPanic(ctx, c.Logger)
+
+	var user models.User
+	err := c.DB.Orm.Model(&models.User{}).Where("id = ?", userId).First(&user).Error
+	if err != nil {
+		c.Logger.Error("error retrieving user:", err)
+		ctx.JSON(http.StatusInternalServerError, gin.H{"error": "user error"})
+		return
+	}
+
+	ctx.JSON(http.StatusOK, api.BalanceResponse{
+		Current:   user.Current,
+		Withdrawn: user.Withdrawn,
+	})
 }
 
 func (c *UserController) balanceWithdrawHandler(ctx *gin.Context) {
@@ -130,4 +166,13 @@ func (c *UserController) balanceWithdrawHandler(ctx *gin.Context) {
 
 func (c *UserController) withdrawalsHandler(ctx *gin.Context) {
 	// auth-only
+}
+
+func getUserIdOrPanic(ctx *gin.Context, logger *zap.SugaredLogger) string {
+	userId, ok := ctx.Get("user_id")
+	if !ok {
+		ctx.JSON(http.StatusInternalServerError, gin.H{"error": "internal service error"})
+		logger.Panicf("no user_id provided by auth middleware! %s %s", ctx.Request.Method, ctx.Request.RequestURI)
+	}
+	return userId.(string)
 }

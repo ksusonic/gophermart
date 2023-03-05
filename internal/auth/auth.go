@@ -1,6 +1,7 @@
 package auth
 
 import (
+	"net/http"
 	"time"
 
 	"github.com/ksusonic/gophermart/internal/models"
@@ -25,10 +26,10 @@ func NewAuthController(jwtKey string) *Controller {
 
 func (c *Controller) IsAuthorized() gin.HandlerFunc {
 	return func(ctx *gin.Context) {
-		cookie, err := ctx.Cookie("token")
+		cookie, err := ctx.Cookie("Authorization")
 
 		if err != nil {
-			ctx.JSON(401, gin.H{"error": "unauthorized"})
+			ctx.JSON(http.StatusUnauthorized, gin.H{"error": "unauthorized"})
 			ctx.Abort()
 			return
 		}
@@ -36,12 +37,12 @@ func (c *Controller) IsAuthorized() gin.HandlerFunc {
 		claims, err := c.parseToken(cookie)
 
 		if err != nil {
-			ctx.JSON(401, gin.H{"error": "unauthorized"})
+			ctx.JSON(http.StatusUnauthorized, gin.H{"error": "unauthorized"})
 			ctx.Abort()
 			return
 		}
 
-		ctx.Set("login", claims.Login)
+		ctx.Set("user_id", claims.UserID)
 		ctx.Next()
 	}
 }

@@ -1,9 +1,9 @@
 package models
 
 import (
-	"time"
-
+	"database/sql"
 	"gorm.io/gorm"
+	"time"
 )
 
 const (
@@ -15,10 +15,12 @@ const (
 
 type Order struct {
 	gorm.Model
-	Number    string    `gorm:"unique" json:"number"`
-	Status    string    `json:"status"`
-	Accrual   int64     `json:"accrual,omitempty"`
-	CreatedAt time.Time `json:"uploaded_at"`
+	Number string `gorm:"unique"`
+	UserID uint
+
+	Status    string
+	Accrual   sql.NullInt64
+	CreatedAt time.Time
 }
 
 type Withdraw struct {

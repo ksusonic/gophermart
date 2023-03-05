@@ -9,4 +9,6 @@ type User struct {
 
 	Current   float64 `json:"current,omitempty"`
 	Withdrawn int64   `json:"withdrawn,omitempty"`
+
+	Orders []Order `json:"-"`
 }

@@ -4,11 +4,12 @@ import "gorm.io/gorm"
 
 type User struct {
 	gorm.Model
-	Login    string `gorm:"not null;unique" json:"login"`
-	Password string `json:"password"`
+	Login    string `gorm:"not null;unique"`
+	Password string `gorm:"not null"`
 
-	Current   float64 `json:"current,omitempty"`
-	Withdrawn int64   `json:"withdrawn,omitempty"`
+	Current   float64
+	Withdrawn int64
 
-	Orders []Order `json:"-"`
+	Orders      []Order
+	Withdrawals []Withdraw
 }

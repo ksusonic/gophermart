@@ -25,6 +25,9 @@ func NewDB(dbConnect string, logger *zap.SugaredLogger) *DB {
 	if err := db.AutoMigrate(&models.Order{}); err != nil {
 		logger.Fatalf("could not migrate Order: %v", err)
 	}
+	if err := db.AutoMigrate(&models.Withdraw{}); err != nil {
+		logger.Fatalf("could not migrate Withdraw: %v", err)
+	}
 	logger.Debug("successfully migrated")
 
 	return &DB{Orm: db}

@@ -3,28 +3,31 @@ package models
 import (
 	"database/sql"
 	"gorm.io/gorm"
-	"time"
 )
 
 const (
-	StatusRegistered = "REGISTERED"
-	StatusInvalid    = "INVALID"
-	StatusProcessing = "PROCESSING"
-	StatusProcessed  = "PROCESSED"
+	StatusNew = "NEW"
+	//StatusProcessing = "PROCESSING"
+	//StatusInvalid    = "INVALID"
+	//StatusProcessed  = "PROCESSED"
 )
 
 type Order struct {
 	gorm.Model
-	Number string `gorm:"unique"`
-	UserID uint
+	ID string `gorm:"primaryKey"` // Number
 
-	Status    string
-	Accrual   sql.NullInt64
-	CreatedAt time.Time
+	UserID    uint
+	Withdraws []Withdraw
+
+	Status           string
+	Accrual          sql.NullInt64
+	AccrualAvailable int64
 }
 
 type Withdraw struct {
-	Order       string     `json:"order"`
-	Sum         int64      `json:"sum"`
-	ProcessedAt *time.Time `json:"processed_at,omitempty"`
+	gorm.Model
+
+	OrderID string
+	UserID  uint
+	Sum     int64
 }

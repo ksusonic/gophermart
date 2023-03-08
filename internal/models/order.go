@@ -2,32 +2,26 @@ package models
 
 import (
 	"database/sql"
+
 	"gorm.io/gorm"
 )
 
+type OrderStatus string
+
 const (
-	StatusNew = "NEW"
-	//StatusProcessing = "PROCESSING"
-	//StatusInvalid    = "INVALID"
-	//StatusProcessed  = "PROCESSED"
+	OrderStatusNew        OrderStatus = "NEW"
+	OrderStatusProcessing OrderStatus = "PROCESSING"
+	OrderStatusInvalid    OrderStatus = "INVALID"
+	OrderStatusProcessed  OrderStatus = "PROCESSED"
 )
 
 type Order struct {
 	gorm.Model
 	ID string `gorm:"primaryKey"` // Number
 
-	UserID    uint
-	Withdraws []Withdraw
+	UserID uint `gorm:"not null"`
 
-	Status           string
-	Accrual          sql.NullInt64
-	AccrualAvailable int64
-}
-
-type Withdraw struct {
-	gorm.Model
-
-	OrderID string
-	UserID  uint
-	Sum     int64
+	Status   OrderStatus
+	Accrual  sql.NullInt64
+	Withdraw sql.NullInt64
 }

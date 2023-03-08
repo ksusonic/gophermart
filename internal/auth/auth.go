@@ -1,6 +1,7 @@
 package auth
 
 import (
+	"fmt"
 	"net/http"
 	"time"
 
@@ -10,41 +11,51 @@ import (
 	"github.com/golang-jwt/jwt/v5"
 )
 
-var defaultJwtKey = []byte("my_secret_key")
+const (
+	defaultJwtKey    = "my_secret_key"
+	userIDContextKey = "user_id"
+)
 
 type Controller struct {
 	jwtKey []byte
 }
 
 func NewAuthController(jwtKey string) *Controller {
+	key := defaultJwtKey
 	if jwtKey != "" {
-		return &Controller{jwtKey: []byte(jwtKey)}
-	} else {
-		return &Controller{jwtKey: defaultJwtKey}
+		key = jwtKey
+	}
+
+	return &Controller{
+		jwtKey: []byte(key),
 	}
 }
 
 func (c *Controller) IsAuthorized() gin.HandlerFunc {
 	return func(ctx *gin.Context) {
 		cookie, err := ctx.Cookie("Authorization")
-
 		if err != nil {
-			ctx.JSON(http.StatusUnauthorized, gin.H{"error": "unauthorized"})
-			ctx.Abort()
+			ctx.AbortWithStatus(http.StatusUnauthorized)
 			return
 		}
 
 		claims, err := c.parseToken(cookie)
-
 		if err != nil {
-			ctx.JSON(http.StatusUnauthorized, gin.H{"error": "unauthorized"})
-			ctx.Abort()
+			ctx.AbortWithStatus(http.StatusUnauthorized)
 			return
 		}
 
-		ctx.Set("user_id", claims.UserID)
+		ctx.Set(userIDContextKey, claims.UserID)
 		ctx.Next()
 	}
+}
+
+func (c *Controller) GetUserID(ctx *gin.Context) (uint, error) {
+	userID, ok := ctx.Get(userIDContextKey)
+	if !ok {
+		return 0, fmt.Errorf("user_id not found in context")
+	}
+	return userID.(uint), nil
 }
 
 func (c *Controller) CreateSignedJWT(claims models.Claims, expiresAt time.Time) (string, error) {

@@ -6,6 +6,6 @@ type User struct {
 }
 
 type BalanceResponse struct {
-	Current   float64 `json:"current"`
-	Withdrawn int64   `json:"withdrawn"`
+	Current   int64 `json:"current"`
+	Withdrawn int64 `json:"withdrawn"`
 }

@@ -1,7 +1,7 @@
 package controller
 
 import (
-	"gorm.io/gorm"
+	"database/sql"
 	"io"
 	"net/http"
 	"strconv"
@@ -26,6 +26,7 @@ type UserController struct {
 type AuthController interface {
 	IsAuthorized() gin.HandlerFunc
 	CreateSignedJWT(claims models.Claims, expiresAt time.Time) (string, error)
+	GetUserID(ctx *gin.Context) (uint, error)
 }
 
 func NewUserController(host string, auth AuthController, db *database.DB, logger *zap.SugaredLogger) *UserController {
@@ -63,7 +64,7 @@ func (c *UserController) registerHandler(ctx *gin.Context) {
 
 	var existingUser models.User
 
-	c.DB.Orm.Where("login = ?", request.Login).First(&existingUser)
+	c.DB.Orm.Where("login = ?", request.Login).Limit(1).First(&existingUser)
 
 	if existingUser.ID != 0 {
 		ctx.JSON(http.StatusConflict, gin.H{"error": "user already exists"})
@@ -93,7 +94,7 @@ func (c *UserController) loginHandler(ctx *gin.Context) {
 	}
 
 	var existingUser models.User
-	c.DB.Orm.Where("login = ?", request.Login).First(&existingUser)
+	c.DB.Orm.Where("login = ?", request.Login).Limit(1).First(&existingUser)
 	if existingUser.ID == 0 {
 		ctx.JSON(http.StatusBadRequest, gin.H{"error": "user does not exist"})
 		return
@@ -119,7 +120,12 @@ func (c *UserController) loginHandler(ctx *gin.Context) {
 }
 
 func (c *UserController) ordersPostHandler(ctx *gin.Context) {
-	userID := getUserIDOrPanic(ctx, c.Logger)
+	userID, err := c.auth.GetUserID(ctx)
+	if err != nil {
+		c.Logger.Errorf("not found user_id in context: %s %s", ctx.Request.Method, ctx.Request.RequestURI)
+		ctx.JSON(http.StatusInternalServerError, gin.H{"error": "internal service error"})
+		return
+	}
 
 	body, err := io.ReadAll(ctx.Request.Body)
 	if err != nil {
@@ -157,7 +163,7 @@ func (c *UserController) ordersPostHandler(ctx *gin.Context) {
 		err = c.DB.Orm.Model(&models.Order{}).Create(&models.Order{
 			ID:     strconv.FormatInt(orderNumber, 10),
 			UserID: userID,
-			Status: models.StatusNew,
+			Status: models.OrderStatusNew,
 		}).Error
 		if renderIfDBError(ctx, err, "order", c.Logger) {
 			return
@@ -175,10 +181,15 @@ func (c *UserController) ordersPostHandler(ctx *gin.Context) {
 }
 
 func (c *UserController) ordersGetHandler(ctx *gin.Context) {
-	userID := getUserIDOrPanic(ctx, c.Logger)
+	userID, err := c.auth.GetUserID(ctx)
+	if err != nil {
+		c.Logger.Errorf("not found user_id in context: %s %s", ctx.Request.Method, ctx.Request.RequestURI)
+		ctx.JSON(http.StatusInternalServerError, gin.H{"error": "internal service error"})
+		return
+	}
 
 	var orders []models.Order
-	err := c.DB.Orm.Model(&models.Order{}).Where("user_id = ?", userID).Find(&orders).Error
+	err = c.DB.Orm.Model(&models.Order{}).Where("user_id = ?", userID).Find(&orders).Error
 	if renderIfDBError(ctx, err, "order", c.Logger) {
 		return
 	}
@@ -199,22 +210,40 @@ func (c *UserController) ordersGetHandler(ctx *gin.Context) {
 }
 
 func (c *UserController) balanceHandler(ctx *gin.Context) {
-	userID := getUserIDOrPanic(ctx, c.Logger)
-
-	var user models.User
-	err := c.DB.Orm.Model(&models.User{}).Where("id = ?", userID).Take(&user).Error
-	if renderIfDBError(ctx, err, "user", c.Logger) {
+	userID, err := c.auth.GetUserID(ctx)
+	if err != nil {
+		c.Logger.Errorf("not found user_id in context: %s %s", ctx.Request.Method, ctx.Request.RequestURI)
+		ctx.JSON(http.StatusInternalServerError, gin.H{"error": "internal service error"})
 		return
 	}
 
+	var accrualTotal, withdrawnTotal int64
+	err = c.DB.Orm.
+		Table("orders").
+		Where("user_id = ?", userID).
+		Select("sum(accrual), sum(withdraw)").
+		Take(&accrualTotal, &withdrawnTotal).
+		Error
+	if renderIfDBError(ctx, err, "orders", c.Logger) {
+		return
+	}
+
+	current := accrualTotal - withdrawnTotal
+	c.Logger.Debugf("currently user %s has %d and withdrawn %d", userID, current, withdrawnTotal)
+
 	ctx.JSON(http.StatusOK, api.BalanceResponse{
-		Current:   user.Current,
-		Withdrawn: user.Withdrawn,
+		Current:   current,
+		Withdrawn: withdrawnTotal,
 	})
 }
 
 func (c *UserController) balanceWithdrawHandler(ctx *gin.Context) {
-	userID := getUserIDOrPanic(ctx, c.Logger)
+	userID, err := c.auth.GetUserID(ctx)
+	if err != nil {
+		c.Logger.Errorf("not found user_id in context: %s %s", ctx.Request.Method, ctx.Request.RequestURI)
+		ctx.JSON(http.StatusInternalServerError, gin.H{"error": "internal service error"})
+		return
+	}
 
 	var request api.WithdrawRequest
 	if err := ctx.ShouldBindJSON(&request); err != nil {
@@ -222,109 +251,57 @@ func (c *UserController) balanceWithdrawHandler(ctx *gin.Context) {
 		return
 	}
 
-	var order models.Order
-	err := c.DB.Orm.Model(&models.Order{}).Where("id = ?", request.Order).Find(&order).Error
-	if renderIfDBError(ctx, err, "order", c.Logger) {
+	var order = models.Order{
+		ID:     request.Order,
+		UserID: userID,
+		Status: models.OrderStatusNew,
+		Withdraw: sql.NullInt64{
+			Int64: request.Sum,
+			Valid: true,
+		},
+	}
+
+	findTx := c.DB.Orm.Model(&models.Order{}).Where("id = ?", order.ID).Limit(1).Find(&models.Order{})
+	if renderIfDBError(ctx, findTx.Error, "orders", c.Logger) {
+		return
+	} else if findTx.RowsAffected != 0 {
+		ctx.JSON(http.StatusConflict, gin.H{"error": "order already exists"})
 		return
 	}
 
-	if order.ID == "" {
-		ctx.JSON(http.StatusUnprocessableEntity, gin.H{"status": "order not found"})
+	err = c.DB.Orm.Create(&order).Error
+	if renderIfDBError(ctx, err, "orders", c.Logger) {
 		return
 	}
-
-	var allowedWithdraw bool
-	if order.AccrualAvailable >= request.Sum {
-		// enough
-		allowedWithdraw = true
-	} else {
-		allowedWithdraw = false
-	}
-
-	c.Logger.Infof(
-		"user %d with order %s - status %s accrual %d, available %d is %v to withdraw %d for ",
-		userID,
-		request.Order,
-		order.Status,
-		order.Accrual.Int64,
-		order.AccrualAvailable,
-		allowedWithdraw,
-		request.Sum,
-	)
-
-	if allowedWithdraw {
-		err := c.DB.Orm.Transaction(func(tx *gorm.DB) error {
-			order.AccrualAvailable -= request.Sum
-			if err := tx.Save(order).Error; err != nil {
-				return err
-			}
-
-			if err := tx.Create(&models.Withdraw{
-				OrderID: request.Order,
-				Sum:     request.Sum,
-			}).Error; err != nil {
-				return err
-			}
-
-			var user models.User
-			if err := tx.Model(&models.User{}).
-				Where("id = ?", userID).
-				Find(&user).Error; err != nil {
-				return err
-			}
-			user.Current -= float64(request.Sum)
-			user.Withdrawn += request.Sum
-			if err := tx.Save(user).Error; err != nil {
-				return err
-			}
-
-			c.Logger.Infof("withdraw of %d is success", request.Sum)
-			return nil
-		})
-		if renderIfDBError(ctx, err, "order update", c.Logger) {
-			return
-		} else {
-			c.Logger.Infof("withdraw of %d is success", request.Sum)
-			ctx.JSON(http.StatusOK, gin.H{"status": "success"})
-			return
-		}
-	} else {
-		ctx.JSON(http.StatusPaymentRequired, gin.H{"status": "not enough"})
-		return
-	}
+	ctx.JSON(http.StatusOK, gin.H{"status": "ok - withdrawn"})
 }
 
 func (c *UserController) withdrawalsHandler(ctx *gin.Context) {
-	userID := getUserIDOrPanic(ctx, c.Logger)
-
-	var withdrawals []models.Withdraw
-	err := c.DB.Orm.Model(&models.Withdraw{}).
-		Where("user_id = ?", userID).
-		Find(&withdrawals).
-		Order("created_at DESC").
-		Error
-	if renderIfDBError(ctx, err, "withdraw", c.Logger) {
+	userID, err := c.auth.GetUserID(ctx)
+	if err != nil {
+		c.Logger.Errorf("not found user_id in context: %s %s", ctx.Request.Method, ctx.Request.RequestURI)
+		ctx.JSON(http.StatusInternalServerError, gin.H{"error": "internal service error"})
 		return
 	}
 
-	response := make([]api.WithdrawResponse, len(withdrawals))
+	var withdrawals []models.Order
+	err = c.DB.Orm.Model(&models.Order{}).
+		Where("user_id = ? and withdraw not null", userID).
+		Take(&withdrawals).
+		Error
+	if renderIfDBError(ctx, err, "orders", c.Logger) {
+		return
+	}
+
+	var response = make(api.WithdrawResponse, len(withdrawals))
 	for i := range withdrawals {
-		response[i] = api.WithdrawResponse{
-			Order:       withdrawals[i].OrderID,
-			Sum:         withdrawals[i].Sum,
-			ProcessedAt: withdrawals[i].CreatedAt.Format(time.RFC3339),
+		response[i] = api.Withdraw{
+			Order:       withdrawals[i].ID,
+			Sum:         withdrawals[i].Withdraw.Int64,
+			ProcessedAt: withdrawals[i].UpdatedAt.Format(time.RFC3339),
 		}
 	}
 	ctx.JSON(http.StatusOK, response)
-}
-
-func getUserIDOrPanic(ctx *gin.Context, logger *zap.SugaredLogger) uint {
-	userID, ok := ctx.Get("user_id")
-	if !ok {
-		ctx.JSON(http.StatusInternalServerError, gin.H{"error": "internal service error"})
-		logger.Panicf("no user_id provided by auth middleware! %s %s", ctx.Request.Method, ctx.Request.RequestURI)
-	}
-	return userID.(uint)
 }
 
 func renderIfDBError(ctx *gin.Context, err error, modelName string, logger *zap.SugaredLogger) bool {

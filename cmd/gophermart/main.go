@@ -6,6 +6,9 @@ import (
 	"github.com/ksusonic/gophermart/internal/controller"
 	"github.com/ksusonic/gophermart/internal/database"
 	"github.com/ksusonic/gophermart/internal/server"
+	"os"
+	"os/signal"
+	"syscall"
 
 	"go.uber.org/zap"
 )
@@ -23,10 +26,9 @@ func main() {
 
 	s := server.NewServer(cfg, logger)
 
-	authController := auth.NewAuthController(cfg.JwtKey)
 	s.MountController("/user", controller.NewUserController(
 		cfg.Address,
-		authController,
+		auth.NewAuthController(cfg.JwtKey),
 		db,
 		logger.Named("user"),
 	))
@@ -35,7 +37,15 @@ func main() {
 		logger.Named("orders"),
 	))
 
-	logger.Fatal(s.Run(cfg.Address))
+	err = s.Run(cfg.Address)
+	if err != nil {
+		logger.Fatal(err)
+	}
+
+	osSignal := make(chan os.Signal, 1)
+	signal.Notify(osSignal, syscall.SIGINT, syscall.SIGTERM, syscall.SIGQUIT)
+	logger.Debugf("caught %v", <-osSignal)
+	logger.Infof("server stopped")
 }
 
 func initLogger(debug bool) *zap.SugaredLogger {

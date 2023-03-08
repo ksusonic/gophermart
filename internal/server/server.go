@@ -5,6 +5,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/ksusonic/gophermart/internal/config"
 	"go.uber.org/zap"
+	"net/http"
 )
 
 const apiPrefix = "/api"
@@ -44,5 +45,16 @@ func (s *Server) MountController(path string, controller Controller) {
 
 func (s *Server) Run(address string) error {
 	s.logger.Infof("Starting server on %s", address)
-	return s.Engine.Run(address)
+	srv := &http.Server{
+		Addr:    ":8080",
+		Handler: s.Engine,
+	}
+
+	go func() {
+		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			s.logger.Fatalf("Could not start listener: %v", err)
+		}
+	}()
+
+	return nil
 }

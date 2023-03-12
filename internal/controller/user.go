@@ -82,7 +82,18 @@ func (c *UserController) registerHandler(ctx *gin.Context) {
 		Login:    request.Login,
 		Password: hashedPassword,
 	})
-	ctx.JSON(http.StatusOK, gin.H{"status": "created"})
+
+	expiresAt := time.Now().Add(120 * time.Minute)
+	signedToken, err := c.auth.CreateSignedJWT(models.Claims{
+		UserID: existingUser.ID,
+	}, expiresAt)
+	if err != nil {
+		ctx.JSON(http.StatusInternalServerError, gin.H{"error": "could not generate token"})
+		return
+	}
+
+	ctx.SetCookie("Authorization", signedToken, int(expiresAt.Unix()), "/", c.host, false, true)
+	ctx.JSON(http.StatusOK, gin.H{"status": "welcome"})
 }
 
 func (c *UserController) loginHandler(ctx *gin.Context) {

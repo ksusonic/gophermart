@@ -64,7 +64,10 @@ func (c *UserController) registerHandler(ctx *gin.Context) {
 
 	var existingUser models.User
 
-	c.DB.Orm.Where("login = ?", request.Login).Limit(1).First(&existingUser)
+	err := c.DB.Orm.Where("login = ?", request.Login).Limit(1).First(&existingUser).Error
+	if renderIfDBError(ctx, err, "order", c.Logger) {
+		return
+	}
 
 	if existingUser.ID != 0 {
 		ctx.JSON(http.StatusConflict, gin.H{"error": "user already exists"})
@@ -78,14 +81,18 @@ func (c *UserController) registerHandler(ctx *gin.Context) {
 		return
 	}
 
-	c.DB.Orm.Create(&models.User{
+	user := models.User{
 		Login:    request.Login,
 		Password: hashedPassword,
-	})
+	}
+	err = c.DB.Orm.Create(&user).Error
+	if renderIfDBError(ctx, err, "order", c.Logger) {
+		return
+	}
 
 	expiresAt := time.Now().Add(120 * time.Minute)
 	signedToken, err := c.auth.CreateSignedJWT(models.Claims{
-		UserID: existingUser.ID,
+		UserID: user.ID,
 	}, expiresAt)
 	if err != nil {
 		ctx.JSON(http.StatusInternalServerError, gin.H{"error": "could not generate token"})
@@ -105,7 +112,10 @@ func (c *UserController) loginHandler(ctx *gin.Context) {
 	}
 
 	var existingUser models.User
-	c.DB.Orm.Where("login = ?", request.Login).Limit(1).First(&existingUser)
+	err := c.DB.Orm.Where("login = ?", request.Login).Limit(1).First(&existingUser).Error
+	if renderIfDBError(ctx, err, "order", c.Logger) {
+		return
+	}
 	if existingUser.ID == 0 {
 		ctx.JSON(http.StatusBadRequest, gin.H{"error": "user does not exist"})
 		return

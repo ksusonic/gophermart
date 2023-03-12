@@ -2,19 +2,13 @@ package accrual
 
 import (
 	"context"
-	"database/sql"
 	"fmt"
 	"net/http"
 	"time"
 
-	"github.com/ksusonic/gophermart/internal/api"
-	"github.com/ksusonic/gophermart/internal/models"
-
 	"go.uber.org/zap"
 	"golang.org/x/sync/errgroup"
 )
-
-const OrdersHandler = "/api/orders/"
 
 type Worker struct {
 	accrualAddress string
@@ -69,40 +63,6 @@ func (w *Worker) processAccrual() error {
 	if err := eg.Wait(); err != nil {
 		w.logger.Errorf("error processing order: %v", err)
 		return err
-	}
-	return nil
-}
-
-func (w *Worker) processOrder(response *api.AccrualResponse, order *models.Order) error {
-	switch response.Status {
-	case api.AccrualStatusProcessed:
-		order.Status = models.OrderStatusProcessed
-		order.Accrual = sql.NullFloat64{
-			Float64: response.Accrual,
-			Valid:   true,
-		}
-		err := w.db.UpdateOrder(order)
-		if err != nil {
-			return fmt.Errorf("error updating order: %v", err)
-		}
-		w.logger.Infof("order %s is processed!", order.ID)
-	case api.AccrualStatusProcessing:
-		order.Status = models.OrderStatusInvalid
-		err := w.db.UpdateOrder(order)
-		if err != nil {
-			return fmt.Errorf("error updating order: %v", err)
-		}
-		w.logger.Debugf("order %s is processing", order.ID)
-	case api.AccrualStatusRegistered:
-		w.logger.Debugf("order %s is registered", order.ID)
-	case api.AccrualStatusInvalid:
-		order.Status = models.OrderStatusInvalid
-		err := w.db.UpdateOrder(order)
-		if err != nil {
-			return fmt.Errorf("error updating order: %v", err)
-		}
-	default:
-		w.logger.Warn("unknown status from accrual: %s", response.Status)
 	}
 	return nil
 }

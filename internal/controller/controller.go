@@ -216,7 +216,7 @@ func (c *UserController) ordersGetHandler(ctx *gin.Context) {
 			UploadedAt: orders[i].CreatedAt.Format(time.RFC3339),
 		}
 		if orders[i].Accrual.Valid {
-			response[i].Accrual = orders[i].Accrual.Int64
+			response[i].Accrual = orders[i].Accrual.Float64
 		}
 	}
 

@@ -12,5 +12,5 @@ const (
 type AccrualResponse struct {
 	OrderNumber string        `json:"order"`
 	Status      AccrualStatus `json:"status"`
-	Accrual     *int64        `json:"accrual"`
+	Accrual     float64       `json:"accrual"`
 }

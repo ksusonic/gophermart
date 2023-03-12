@@ -22,6 +22,6 @@ type Order struct {
 	UserID uint `gorm:"not null"`
 
 	Status   OrderStatus
-	Accrual  sql.NullInt64
+	Accrual  sql.NullFloat64
 	Withdraw sql.NullInt64
 }

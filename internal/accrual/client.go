@@ -2,6 +2,7 @@ package accrual
 
 import (
 	"context"
+	"database/sql"
 	"fmt"
 	"net/http"
 	"time"
@@ -76,8 +77,9 @@ func (w *Worker) processOrder(response *api.AccrualResponse, order *models.Order
 	switch response.Status {
 	case api.AccrualStatusProcessed:
 		order.Status = models.OrderStatusProcessed
-		if err := order.Accrual.Scan(response.Accrual); err != nil {
-			return fmt.Errorf("error in scan int64 value %d: %v", response.Accrual, err)
+		order.Accrual = sql.NullFloat64{
+			Float64: response.Accrual,
+			Valid:   true,
 		}
 		err := w.db.UpdateOrder(order)
 		if err != nil {

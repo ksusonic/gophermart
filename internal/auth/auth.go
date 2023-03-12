@@ -5,16 +5,14 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/ksusonic/gophermart/internal/ctxdata"
 	"github.com/ksusonic/gophermart/internal/models"
 
 	"github.com/gin-gonic/gin"
 	"github.com/golang-jwt/jwt/v5"
 )
 
-const (
-	defaultJwtKey    = "my_secret_key"
-	userIDContextKey = "user_id"
-)
+const defaultJwtKey = "my_secret_key"
 
 type Controller struct {
 	jwtKey []byte
@@ -45,17 +43,17 @@ func (c *Controller) IsAuthorized() gin.HandlerFunc {
 			return
 		}
 
-		ctx.Set(userIDContextKey, claims.UserID)
+		ctxdata.SetUserID(ctx, claims.UserID)
 		ctx.Next()
 	}
 }
 
 func (c *Controller) GetUserID(ctx *gin.Context) (uint, error) {
-	userID, ok := ctx.Get(userIDContextKey)
+	userID, ok := ctxdata.GetUserID(ctx)
 	if !ok {
 		return 0, fmt.Errorf("user_id not found in context")
 	}
-	return userID.(uint), nil
+	return userID, nil
 }
 
 func (c *Controller) CreateSignedJWT(claims models.Claims, expiresAt time.Time) (string, error) {

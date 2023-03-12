@@ -29,7 +29,7 @@ func (w *Worker) getOrderInfo(number string) (*api.AccrualResponse, error) {
 		var accrualResponse api.AccrualResponse
 		err = json.Unmarshal(bytes, &accrualResponse)
 		if err != nil {
-			return nil, fmt.Errorf("could not parse response body: %w", err)
+			return nil, fmt.Errorf("could not parse response body: %s error: %w", string(bytes), err)
 		}
 		return &accrualResponse, nil
 	default:

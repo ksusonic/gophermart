@@ -23,5 +23,5 @@ type Order struct {
 
 	Status   OrderStatus
 	Accrual  sql.NullFloat64
-	Withdraw sql.NullInt64
+	Withdraw sql.NullFloat64
 }

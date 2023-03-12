@@ -262,9 +262,9 @@ func (c *UserController) balanceWithdrawHandler(ctx *gin.Context) {
 		ID:     request.Order,
 		UserID: userID,
 		Status: models.OrderStatusNew,
-		Withdraw: sql.NullInt64{
-			Int64: request.Sum,
-			Valid: true,
+		Withdraw: sql.NullFloat64{
+			Float64: request.Sum,
+			Valid:   true,
 		},
 	}
 
@@ -301,7 +301,7 @@ func (c *UserController) withdrawalsHandler(ctx *gin.Context) {
 	for i := range withdrawals {
 		response[i] = api.Withdraw{
 			Order:       withdrawals[i].ID,
-			Sum:         withdrawals[i].Withdraw.Int64,
+			Sum:         withdrawals[i].Withdraw.Float64,
 			ProcessedAt: withdrawals[i].UpdatedAt.Format(time.RFC3339),
 		}
 	}

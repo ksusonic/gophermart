@@ -22,10 +22,11 @@ func (d *DB) GetOrdersByUserID(userID uint, orders *[]models.Order) error {
 func (d *DB) CalculateUserStats(userID uint) (userInfo struct{ Balance, Withdraw float64 }, err error) {
 	err = d.Orm.
 		Table("orders").
-		Select("sum(accrual)-sum(withdraw) as balance, sum(withdraw) as withdraw").
-		Where("user_id=?", userID).
+		Select("sum(accrual) as balance, sum(withdraw) as withdraw").
+		Where("user_id = ?", userID).
 		Scan(&userInfo).
 		Error
+	userInfo.Balance -= userInfo.Withdraw
 	return userInfo, err
 }
 

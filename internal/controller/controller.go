@@ -216,7 +216,7 @@ func (c *UserController) ordersGetHandler(ctx *gin.Context) {
 			UploadedAt: orders[i].CreatedAt.Format(time.RFC3339),
 		}
 		if orders[i].Accrual.Valid {
-			response[i].Accrual = orders[i].Accrual.Float64
+			response[i].Accrual = float64(orders[i].Accrual.Int64) / 100
 		}
 	}
 
@@ -236,11 +236,11 @@ func (c *UserController) balanceHandler(ctx *gin.Context) {
 		return
 	}
 
-	c.Logger.Debugf("currently user %d has %d and withdrawn %d", userID, userInfo.Balance, userInfo.Withdraw)
+	c.Logger.Debugf("currently user %d has %f and withdrawn %f", userID, userInfo.Balance, userInfo.Withdraw)
 
 	ctx.JSON(http.StatusOK, api.BalanceResponse{
-		Current:   userInfo.Balance,
-		Withdrawn: userInfo.Withdraw,
+		Current:   float64(userInfo.Balance) / 100,
+		Withdrawn: float64(userInfo.Withdraw) / 100,
 	})
 }
 
@@ -262,9 +262,9 @@ func (c *UserController) balanceWithdrawHandler(ctx *gin.Context) {
 		ID:     request.Order,
 		UserID: userID,
 		Status: models.OrderStatusNew,
-		Withdraw: sql.NullFloat64{
-			Float64: request.Sum,
-			Valid:   true,
+		Withdraw: sql.NullInt64{
+			Int64: int64(request.Sum * 100),
+			Valid: true,
 		},
 	}
 
@@ -301,7 +301,7 @@ func (c *UserController) withdrawalsHandler(ctx *gin.Context) {
 	for i := range withdrawals {
 		response[i] = api.Withdraw{
 			Order:       withdrawals[i].ID,
-			Sum:         withdrawals[i].Withdraw.Float64,
+			Sum:         float64(withdrawals[i].Withdraw.Int64) / 100,
 			ProcessedAt: withdrawals[i].UpdatedAt.Format(time.RFC3339),
 		}
 	}

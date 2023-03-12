@@ -45,9 +45,9 @@ func (w *Worker) processOrder(response *api.AccrualResponse, order *models.Order
 	switch response.Status {
 	case api.AccrualStatusProcessed:
 		order.Status = models.OrderStatusProcessed
-		order.Accrual = sql.NullFloat64{
-			Float64: response.Accrual,
-			Valid:   true,
+		order.Accrual = sql.NullInt64{
+			Int64: int64(response.Accrual * 100),
+			Valid: true,
 		}
 		err := w.db.UpdateOrder(order)
 		if err != nil {

@@ -19,7 +19,7 @@ func (d *DB) GetOrdersByUserID(userID uint, orders *[]models.Order) error {
 	return d.Orm.Model(&models.Order{}).Where("user_id = ?", userID).Find(&orders).Error
 }
 
-func (d *DB) CalculateUserStats(userID uint) (userInfo struct{ Balance, Withdraw float64 }, err error) {
+func (d *DB) CalculateUserStats(userID uint) (userInfo struct{ Balance, Withdraw int64 }, err error) {
 	err = d.Orm.
 		Table("orders").
 		Select("sum(accrual) as balance, sum(withdraw) as withdraw").

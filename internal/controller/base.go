@@ -24,5 +24,5 @@ type Database interface {
 	GetOrderByID(id string, order *models.Order) (int64, error)
 	GetUserWithdraws(userID uint, withdrawals *[]models.Order) error
 	GetOrdersByUserID(userID uint, orders *[]models.Order) error
-	CalculateUserStats(userID uint) (userInfo struct{ Balance, Withdraw float64 }, err error)
+	CalculateUserStats(userID uint) (userInfo struct{ Balance, Withdraw int64 }, err error)
 }

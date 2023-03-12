@@ -43,7 +43,7 @@ func (s *Server) MountController(path string, controller Controller) {
 	controller.RegisterHandlers(s.Engine.Group(apiPrefix + path))
 }
 
-func (s *Server) Run(address string) error {
+func (s *Server) Run(address string) *http.Server {
 	s.logger.Infof("Starting server on %s", address)
 	srv := &http.Server{
 		Addr:    ":8080",
@@ -55,6 +55,5 @@ func (s *Server) Run(address string) error {
 			s.logger.Fatalf("Could not start listener: %v", err)
 		}
 	}()
-
-	return nil
+	return srv
 }

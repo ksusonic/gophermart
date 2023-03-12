@@ -28,3 +28,7 @@ func (d *DB) CalculateUserStats(userID uint) (userInfo struct{ Balance, Withdraw
 		Error
 	return userInfo, err
 }
+
+func (d *DB) GetOrdersWithStatus(orders *[]models.Order, status ...models.OrderStatus) error {
+	return d.Orm.Model(&models.Order{}).Where("status in ?", status).Find(&orders).Error
+}

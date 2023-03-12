@@ -64,7 +64,7 @@ func (c *UserController) registerHandler(ctx *gin.Context) {
 
 	var existingUser models.User
 
-	err := c.DB.Orm.Where("login = ?", request.Login).Limit(1).First(&existingUser).Error
+	err := c.DB.Orm.Where("login = ?", request.Login).Limit(1).Find(&existingUser).Error
 	if renderIfDBError(ctx, err, "order", c.Logger) {
 		return
 	}
@@ -112,7 +112,7 @@ func (c *UserController) loginHandler(ctx *gin.Context) {
 	}
 
 	var existingUser models.User
-	err := c.DB.Orm.Where("login = ?", request.Login).Limit(1).First(&existingUser).Error
+	err := c.DB.Orm.Where("login = ?", request.Login).Limit(1).Find(&existingUser).Error
 	if renderIfDBError(ctx, err, "order", c.Logger) {
 		return
 	}

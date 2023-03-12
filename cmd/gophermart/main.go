@@ -27,14 +27,9 @@ func main() {
 	s := server.NewServer(cfg, logger)
 
 	s.MountController("/user", controller.NewUserController(
-		cfg.Address,
 		auth.NewAuthController(cfg.JwtKey),
 		db,
 		logger.Named("user"),
-	))
-	s.MountController("/orders", controller.NewOrdersController(
-		db,
-		logger.Named("orders"),
 	))
 
 	err = s.Run(cfg.Address)

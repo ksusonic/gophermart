@@ -1,10 +1,9 @@
 package database
 
 import (
-	"go.uber.org/zap"
-
 	"github.com/ksusonic/gophermart/internal/models"
 
+	"go.uber.org/zap"
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
 )

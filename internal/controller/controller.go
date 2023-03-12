@@ -1,16 +1,318 @@
 package controller
 
 import (
+	"database/sql"
+	"io"
+	"net/http"
+	"strconv"
+	"time"
+
+	"github.com/ksusonic/gophermart/internal/api"
+	"github.com/ksusonic/gophermart/internal/models"
+	"github.com/ksusonic/gophermart/internal/utils"
+
 	"github.com/gin-gonic/gin"
-	"github.com/ksusonic/gophermart/internal/database"
 	"go.uber.org/zap"
 )
 
-type Controller struct {
-	DB     *database.DB
-	Logger *zap.SugaredLogger
+type UserController struct {
+	Controller
+
+	auth AuthController
 }
 
-func (c Controller) RegisterHandlers(*gin.RouterGroup) {
-	panic("not implemented!")
+type AuthController interface {
+	IsAuthorized() gin.HandlerFunc
+	CreateSignedJWT(claims models.Claims, expiresAt time.Time) (string, error)
+	GetUserID(ctx *gin.Context) (uint, error)
+}
+
+func NewUserController(auth AuthController, db Database, logger *zap.SugaredLogger) *UserController {
+	return &UserController{
+		Controller: Controller{
+			DB:     db,
+			Logger: logger,
+		},
+		auth: auth,
+	}
+}
+
+func (c *UserController) RegisterHandlers(router *gin.RouterGroup) {
+	router.POST("/register", c.registerHandler)
+	router.POST("/login", c.loginHandler)
+
+	authOnly := router.Group("")
+	authOnly.Use(c.auth.IsAuthorized())
+
+	authOnly.POST("/orders", c.ordersPostHandler)
+	authOnly.GET("/orders", c.ordersGetHandler)
+	authOnly.GET("/balance", c.balanceHandler)
+	authOnly.POST("/balance/withdraw", c.balanceWithdrawHandler)
+	authOnly.GET("/withdrawals", c.withdrawalsHandler)
+}
+
+func (c *UserController) registerHandler(ctx *gin.Context) {
+	var request api.User
+
+	if err := ctx.ShouldBindJSON(&request); err != nil {
+		ctx.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	var existingUser models.User
+
+	err := c.DB.GetUserByLogin(request.Login, &existingUser)
+	if renderIfDBError(ctx, err, "order", c.Logger) {
+		return
+	}
+
+	if existingUser.ID != 0 {
+		ctx.JSON(http.StatusConflict, gin.H{"error": "user already exists"})
+		return
+	}
+
+	hashedPassword, err := utils.GenerateHashPassword(request.Password)
+	if err != nil {
+		c.Logger.Warnf("could not hash password: %v", err)
+		ctx.JSON(http.StatusBadRequest, gin.H{"error": "could not generate password hash"})
+		return
+	}
+
+	user := models.User{
+		Login:        request.Login,
+		PasswordHash: hashedPassword,
+	}
+	err = c.DB.CreateUser(&user)
+	if renderIfDBError(ctx, err, "order", c.Logger) {
+		return
+	}
+
+	expiresAt := time.Now().Add(120 * time.Minute)
+	signedToken, err := c.auth.CreateSignedJWT(models.Claims{
+		UserID: user.ID,
+	}, expiresAt)
+	if err != nil {
+		ctx.JSON(http.StatusInternalServerError, gin.H{"error": "could not generate token"})
+		return
+	}
+
+	ctx.SetCookie("Authorization", signedToken, int(expiresAt.Unix()), "/", "", false, true)
+	ctx.JSON(http.StatusOK, gin.H{"status": "welcome"})
+}
+
+func (c *UserController) loginHandler(ctx *gin.Context) {
+	var request api.User
+
+	if err := ctx.ShouldBindJSON(&request); err != nil {
+		ctx.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	var existingUser models.User
+	err := c.DB.GetUserByLogin(request.Login, &existingUser)
+	if renderIfDBError(ctx, err, "order", c.Logger) {
+		return
+	}
+	if existingUser.ID == 0 {
+		ctx.JSON(http.StatusBadRequest, gin.H{"error": "user does not exist"})
+		return
+	}
+
+	errHash := utils.CompareHashPassword(request.Password, existingUser.PasswordHash)
+	if !errHash {
+		ctx.JSON(http.StatusBadRequest, gin.H{"error": "invalid password"})
+		return
+	}
+
+	expiresAt := time.Now().Add(120 * time.Minute)
+	signedToken, err := c.auth.CreateSignedJWT(models.Claims{
+		UserID: existingUser.ID,
+	}, expiresAt)
+	if err != nil {
+		ctx.JSON(http.StatusInternalServerError, gin.H{"error": "could not generate token"})
+		return
+	}
+
+	ctx.SetCookie("Authorization", signedToken, int(expiresAt.Unix()), "/", "", false, true)
+	ctx.JSON(http.StatusOK, gin.H{"success": "logged in"})
+}
+
+func (c *UserController) ordersPostHandler(ctx *gin.Context) {
+	userID, err := c.auth.GetUserID(ctx)
+	if err != nil {
+		c.Logger.Errorf("not found user_id in context: %s %s", ctx.Request.Method, ctx.Request.RequestURI)
+		ctx.JSON(http.StatusInternalServerError, gin.H{"error": "internal service error"})
+		return
+	}
+
+	body, err := io.ReadAll(ctx.Request.Body)
+	if err != nil {
+		ctx.JSON(http.StatusBadRequest, gin.H{"error": "incorrect body"})
+		return
+	}
+	orderNumber, err := strconv.ParseInt(string(body), 10, 64)
+	if err != nil {
+		c.Logger.Error("could not bind request:", err)
+		ctx.JSON(http.StatusBadRequest, gin.H{"error": "wrong order format"})
+		return
+	}
+
+	if !utils.LuhnValid(orderNumber) {
+		c.Logger.Info("luhn-invalid number:", orderNumber)
+		ctx.JSON(
+			http.StatusUnprocessableEntity,
+			gin.H{"error": "incorrect order number: " + strconv.FormatInt(orderNumber, 10)},
+		)
+		return
+	}
+
+	var existingOrder models.Order
+	rowsAffected, err := c.DB.GetOrderByID(strconv.FormatInt(orderNumber, 10), &existingOrder)
+	if renderIfDBError(ctx, err, "order", c.Logger) {
+		return
+	}
+
+	// create new order
+	if rowsAffected == 0 {
+		err = c.DB.CreateOrder(&models.Order{
+			ID:     strconv.FormatInt(orderNumber, 10),
+			UserID: userID,
+			Status: models.OrderStatusNew,
+		})
+		if renderIfDBError(ctx, err, "order", c.Logger) {
+			return
+		}
+		ctx.JSON(http.StatusAccepted, gin.H{"status": "accepted"})
+		return
+	} else if existingOrder.UserID == userID {
+		ctx.JSON(http.StatusOK, gin.H{"status": "already accepted"})
+		return
+	} else {
+		ctx.JSON(http.StatusConflict, gin.H{"status": "already accepted by another user"})
+		return
+	}
+
+}
+
+func (c *UserController) ordersGetHandler(ctx *gin.Context) {
+	userID, err := c.auth.GetUserID(ctx)
+	if err != nil {
+		c.Logger.Errorf("not found user_id in context: %s %s", ctx.Request.Method, ctx.Request.RequestURI)
+		ctx.JSON(http.StatusInternalServerError, gin.H{"error": "internal service error"})
+		return
+	}
+
+	var orders []models.Order
+	err = c.DB.GetOrdersByUserID(userID, &orders)
+	if renderIfDBError(ctx, err, "order", c.Logger) {
+		return
+	}
+
+	response := make([]api.Order, len(orders))
+	for i := range orders {
+		response[i] = api.Order{
+			Number:     orders[i].ID,
+			Status:     orders[i].Status,
+			UploadedAt: orders[i].CreatedAt.Format(time.RFC3339),
+		}
+		if orders[i].Accrual.Valid {
+			response[i].Accrual = orders[i].Accrual.Int64
+		}
+	}
+
+	ctx.JSON(http.StatusOK, response)
+}
+
+func (c *UserController) balanceHandler(ctx *gin.Context) {
+	userID, err := c.auth.GetUserID(ctx)
+	if err != nil {
+		c.Logger.Errorf("not found user_id in context: %s %s", ctx.Request.Method, ctx.Request.RequestURI)
+		ctx.JSON(http.StatusInternalServerError, gin.H{"error": "internal service error"})
+		return
+	}
+
+	userInfo, err := c.DB.CalculateUserStats(userID)
+	if renderIfDBError(ctx, err, "orders", c.Logger) {
+		return
+	}
+
+	c.Logger.Debugf("currently user %d has %d and withdrawn %d", userID, userInfo.Balance, userInfo.Withdraw)
+
+	ctx.JSON(http.StatusOK, api.BalanceResponse{
+		Current:   userInfo.Balance,
+		Withdrawn: userInfo.Withdraw,
+	})
+}
+
+func (c *UserController) balanceWithdrawHandler(ctx *gin.Context) {
+	userID, err := c.auth.GetUserID(ctx)
+	if err != nil {
+		c.Logger.Errorf("not found user_id in context: %s %s", ctx.Request.Method, ctx.Request.RequestURI)
+		ctx.JSON(http.StatusInternalServerError, gin.H{"error": "internal service error"})
+		return
+	}
+
+	var request api.WithdrawRequest
+	if err := ctx.ShouldBindJSON(&request); err != nil {
+		ctx.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	var order = models.Order{
+		ID:     request.Order,
+		UserID: userID,
+		Status: models.OrderStatusNew,
+		Withdraw: sql.NullInt64{
+			Int64: request.Sum,
+			Valid: true,
+		},
+	}
+
+	rowsAffected, err := c.DB.GetOrderByID(order.ID, &models.Order{})
+	if renderIfDBError(ctx, err, "orders", c.Logger) {
+		return
+	} else if rowsAffected != 0 {
+		ctx.JSON(http.StatusConflict, gin.H{"error": "order already exists"})
+		return
+	}
+
+	err = c.DB.CreateOrder(&order)
+	if renderIfDBError(ctx, err, "orders", c.Logger) {
+		return
+	}
+	ctx.JSON(http.StatusOK, gin.H{"status": "ok - withdrawn"})
+}
+
+func (c *UserController) withdrawalsHandler(ctx *gin.Context) {
+	userID, err := c.auth.GetUserID(ctx)
+	if err != nil {
+		c.Logger.Errorf("not found user_id in context: %s %s", ctx.Request.Method, ctx.Request.RequestURI)
+		ctx.JSON(http.StatusInternalServerError, gin.H{"error": "internal service error"})
+		return
+	}
+
+	var withdrawals []models.Order
+	err = c.DB.GetUserWithdraws(userID, &withdrawals)
+	if renderIfDBError(ctx, err, "orders", c.Logger) {
+		return
+	}
+
+	var response = make(api.WithdrawResponse, len(withdrawals))
+	for i := range withdrawals {
+		response[i] = api.Withdraw{
+			Order:       withdrawals[i].ID,
+			Sum:         withdrawals[i].Withdraw.Int64,
+			ProcessedAt: withdrawals[i].UpdatedAt.Format(time.RFC3339),
+		}
+	}
+	ctx.JSON(http.StatusOK, response)
+}
+
+func renderIfDBError(ctx *gin.Context, err error, modelName string, logger *zap.SugaredLogger) bool {
+	if err != nil {
+		logger.Errorf("error retrieving %s: %v", modelName, err)
+		ctx.JSON(http.StatusInternalServerError, gin.H{"error": "unexpected error of model " + modelName})
+		return true
+	}
+	return false
 }

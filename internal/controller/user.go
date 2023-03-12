@@ -228,23 +228,26 @@ func (c *UserController) balanceHandler(ctx *gin.Context) {
 		return
 	}
 
-	var accrualTotal, withdrawnTotal int64
+	userInfo := struct {
+		Balance  int64
+		Withdraw int64
+	}{}
+
 	err = c.DB.Orm.
 		Table("orders").
-		Where("user_id = ?", userID).
-		Select("sum(accrual), sum(withdraw)").
-		Take(&accrualTotal, &withdrawnTotal).
+		Select("sum(accrual)-sum(withdraw) as balance, sum(withdraw) as withdraw").
+		Where("user_id=?", userID).
+		Scan(&userInfo).
 		Error
 	if renderIfDBError(ctx, err, "orders", c.Logger) {
 		return
 	}
 
-	current := accrualTotal - withdrawnTotal
-	c.Logger.Debugf("currently user %s has %d and withdrawn %d", userID, current, withdrawnTotal)
+	c.Logger.Debugf("currently user %d has %d and withdrawn %d", userID, userInfo.Balance, userInfo.Withdraw)
 
 	ctx.JSON(http.StatusOK, api.BalanceResponse{
-		Current:   current,
-		Withdrawn: withdrawnTotal,
+		Current:   userInfo.Balance,
+		Withdrawn: userInfo.Withdraw,
 	})
 }
 

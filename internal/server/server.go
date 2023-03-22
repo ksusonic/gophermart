@@ -46,7 +46,7 @@ func (s *Server) MountController(path string, controller Controller) {
 func (s *Server) Run(address string) *http.Server {
 	s.logger.Infof("Starting server on %s", address)
 	srv := &http.Server{
-		Addr:    ":8080",
+		Addr:    address,
 		Handler: s.Engine,
 	}
 

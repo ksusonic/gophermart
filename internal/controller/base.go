@@ -1,6 +1,7 @@
 package controller
 
 import (
+	"github.com/ksusonic/gophermart/internal/api"
 	"github.com/ksusonic/gophermart/internal/models"
 
 	"github.com/gin-gonic/gin"
@@ -20,9 +21,9 @@ type Database interface {
 	CreateUser(user *models.User) error
 	CreateOrder(order *models.Order) error
 
-	GetUserByLogin(login string, user *models.User) error
-	GetOrderByID(id string, order *models.Order) (int64, error)
-	GetUserWithdraws(userID uint, withdrawals *[]models.Order) error
-	GetOrdersByUserID(userID uint, orders *[]models.Order) error
-	CalculateUserStats(userID uint) (userInfo struct{ Balance, Withdraw int64 }, err error)
+	GetUserByLogin(login string) (*models.User, error)
+	GetOrderByID(id string) (*models.Order, error)
+	GetWithdrawnOrdersByUserID(userID uint) (*[]models.Order, error)
+	GetOrdersByUserID(userID uint) (*[]models.Order, error)
+	CalculateUserStats(userID uint) (*api.UserInfo, error)
 }

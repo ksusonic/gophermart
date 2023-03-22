@@ -29,7 +29,7 @@ func NewAuthController(jwtKey string) *Controller {
 	}
 }
 
-func (c *Controller) IsAuthorized() gin.HandlerFunc {
+func (c *Controller) AuthMiddleware() gin.HandlerFunc {
 	return func(ctx *gin.Context) {
 		cookie, err := ctx.Cookie("Authorization")
 		if err != nil {

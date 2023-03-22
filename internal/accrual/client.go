@@ -2,6 +2,8 @@ package accrual
 
 import (
 	"context"
+	"database/sql"
+	"errors"
 	"fmt"
 	"net/http"
 	"time"
@@ -45,6 +47,10 @@ func (w *Worker) Run(ctx context.Context) {
 
 func (w *Worker) processAccrual() error {
 	orders, err := w.getOrdersToCheck()
+	if errors.Is(err, sql.ErrNoRows) {
+		w.logger.Debug("No orders for accrual count")
+		return nil
+	}
 	if err != nil {
 		return fmt.Errorf("could not get orders from db: %w", err)
 	}
@@ -53,7 +59,7 @@ func (w *Worker) processAccrual() error {
 	for i := range orders {
 		response, err := w.getOrderInfo(orders[i].ID)
 		if err != nil {
-			return err
+			return fmt.Errorf("could not request order info: %v", err)
 		}
 		order := orders[i]
 		eg.Go(func() error {

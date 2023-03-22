@@ -2,6 +2,7 @@ package controller
 
 import (
 	"database/sql"
+	"errors"
 	"io"
 	"net/http"
 	"strconv"
@@ -15,6 +16,8 @@ import (
 	"go.uber.org/zap"
 )
 
+const defaultTokenTTL = 120 * time.Minute
+
 type UserController struct {
 	Controller
 
@@ -22,7 +25,7 @@ type UserController struct {
 }
 
 type AuthController interface {
-	IsAuthorized() gin.HandlerFunc
+	AuthMiddleware() gin.HandlerFunc
 	CreateSignedJWT(claims models.Claims, expiresAt time.Time) (string, error)
 	GetUserID(ctx *gin.Context) (uint, error)
 }
@@ -42,7 +45,7 @@ func (c *UserController) RegisterHandlers(router *gin.RouterGroup) {
 	router.POST("/login", c.loginHandler)
 
 	authOnly := router.Group("")
-	authOnly.Use(c.auth.IsAuthorized())
+	authOnly.Use(c.auth.AuthMiddleware())
 
 	authOnly.POST("/orders", c.ordersPostHandler)
 	authOnly.GET("/orders", c.ordersGetHandler)
@@ -59,10 +62,8 @@ func (c *UserController) registerHandler(ctx *gin.Context) {
 		return
 	}
 
-	var existingUser models.User
-
-	err := c.DB.GetUserByLogin(request.Login, &existingUser)
-	if renderIfDBError(ctx, err, "order", c.Logger) {
+	existingUser, err := c.DB.GetUserByLogin(request.Login)
+	if renderIfEntityError(ctx, err, c.Logger) {
 		return
 	}
 
@@ -83,11 +84,11 @@ func (c *UserController) registerHandler(ctx *gin.Context) {
 		PasswordHash: hashedPassword,
 	}
 	err = c.DB.CreateUser(&user)
-	if renderIfDBError(ctx, err, "order", c.Logger) {
+	if renderIfEntityError(ctx, err, c.Logger) {
 		return
 	}
 
-	expiresAt := time.Now().Add(120 * time.Minute)
+	expiresAt := time.Now().Add(defaultTokenTTL)
 	signedToken, err := c.auth.CreateSignedJWT(models.Claims{
 		UserID: user.ID,
 	}, expiresAt)
@@ -108,12 +109,11 @@ func (c *UserController) loginHandler(ctx *gin.Context) {
 		return
 	}
 
-	var existingUser models.User
-	err := c.DB.GetUserByLogin(request.Login, &existingUser)
-	if renderIfDBError(ctx, err, "order", c.Logger) {
+	existingUser, err := c.DB.GetUserByLogin(request.Login)
+	if renderIfEntityError(ctx, err, c.Logger) {
 		return
 	}
-	if existingUser.ID == 0 {
+	if errors.Is(err, sql.ErrNoRows) {
 		ctx.JSON(http.StatusBadRequest, gin.H{"error": "user does not exist"})
 		return
 	}
@@ -166,20 +166,19 @@ func (c *UserController) ordersPostHandler(ctx *gin.Context) {
 		return
 	}
 
-	var existingOrder models.Order
-	rowsAffected, err := c.DB.GetOrderByID(strconv.FormatInt(orderNumber, 10), &existingOrder)
-	if renderIfDBError(ctx, err, "order", c.Logger) {
+	existingOrder, err := c.DB.GetOrderByID(strconv.FormatInt(orderNumber, 10))
+	if renderIfEntityError(ctx, err, c.Logger) {
 		return
 	}
 
-	// create new order
-	if rowsAffected == 0 {
+	if errors.Is(err, sql.ErrNoRows) {
+		// create new order
 		err = c.DB.CreateOrder(&models.Order{
 			ID:     strconv.FormatInt(orderNumber, 10),
 			UserID: userID,
 			Status: models.OrderStatusNew,
 		})
-		if renderIfDBError(ctx, err, "order", c.Logger) {
+		if renderIfEntityError(ctx, err, c.Logger) {
 			return
 		}
 		ctx.JSON(http.StatusAccepted, gin.H{"status": "accepted"})
@@ -202,21 +201,20 @@ func (c *UserController) ordersGetHandler(ctx *gin.Context) {
 		return
 	}
 
-	var orders []models.Order
-	err = c.DB.GetOrdersByUserID(userID, &orders)
-	if renderIfDBError(ctx, err, "order", c.Logger) {
+	orders, err := c.DB.GetOrdersByUserID(userID)
+	if renderIfEntityError(ctx, err, c.Logger) {
 		return
 	}
 
-	response := make([]api.Order, len(orders))
-	for i := range orders {
+	response := make([]api.Order, len(*orders))
+	for i := range *orders {
 		response[i] = api.Order{
-			Number:     orders[i].ID,
-			Status:     orders[i].Status,
-			UploadedAt: orders[i].CreatedAt.Format(time.RFC3339),
+			Number:     (*orders)[i].ID,
+			Status:     (*orders)[i].Status,
+			UploadedAt: (*orders)[i].CreatedAt.Format(time.RFC3339),
 		}
-		if orders[i].Accrual.Valid {
-			response[i].Accrual = float64(orders[i].Accrual.Int64) / 100
+		if (*orders)[i].Accrual.Valid {
+			response[i].Accrual = float64((*orders)[i].Accrual.Int64) / 100
 		}
 	}
 
@@ -232,7 +230,7 @@ func (c *UserController) balanceHandler(ctx *gin.Context) {
 	}
 
 	userInfo, err := c.DB.CalculateUserStats(userID)
-	if renderIfDBError(ctx, err, "orders", c.Logger) {
+	if renderIfEntityError(ctx, err, c.Logger) {
 		return
 	}
 
@@ -268,16 +266,16 @@ func (c *UserController) balanceWithdrawHandler(ctx *gin.Context) {
 		},
 	}
 
-	rowsAffected, err := c.DB.GetOrderByID(order.ID, &models.Order{})
-	if renderIfDBError(ctx, err, "orders", c.Logger) {
-		return
-	} else if rowsAffected != 0 {
+	_, err = c.DB.GetOrderByID(order.ID)
+	if !errors.Is(err, sql.ErrNoRows) {
 		ctx.JSON(http.StatusConflict, gin.H{"error": "order already exists"})
+		return
+	} else if renderIfEntityError(ctx, err, c.Logger) {
 		return
 	}
 
 	err = c.DB.CreateOrder(&order)
-	if renderIfDBError(ctx, err, "orders", c.Logger) {
+	if renderIfEntityError(ctx, err, c.Logger) {
 		return
 	}
 	ctx.JSON(http.StatusOK, gin.H{"status": "ok - withdrawn"})
@@ -291,27 +289,29 @@ func (c *UserController) withdrawalsHandler(ctx *gin.Context) {
 		return
 	}
 
-	var withdrawals []models.Order
-	err = c.DB.GetUserWithdraws(userID, &withdrawals)
-	if renderIfDBError(ctx, err, "orders", c.Logger) {
+	withdrawals, err := c.DB.GetWithdrawnOrdersByUserID(userID)
+	if renderIfEntityError(ctx, err, c.Logger) {
 		return
 	}
 
-	var response = make(api.WithdrawResponse, len(withdrawals))
-	for i := range withdrawals {
+	var response = make(api.WithdrawResponse, len(*withdrawals))
+	for i := range *withdrawals {
 		response[i] = api.Withdraw{
-			Order:       withdrawals[i].ID,
-			Sum:         float64(withdrawals[i].Withdraw.Int64) / 100,
-			ProcessedAt: withdrawals[i].UpdatedAt.Format(time.RFC3339),
+			Order:       (*withdrawals)[i].ID,
+			Sum:         float64((*withdrawals)[i].Withdraw.Int64) / 100,
+			ProcessedAt: (*withdrawals)[i].UpdatedAt.Format(time.RFC3339),
 		}
 	}
 	ctx.JSON(http.StatusOK, response)
 }
 
-func renderIfDBError(ctx *gin.Context, err error, modelName string, logger *zap.SugaredLogger) bool {
+func renderIfEntityError(ctx *gin.Context, err error, logger *zap.SugaredLogger) bool {
+	if errors.Is(err, sql.ErrNoRows) {
+		return false
+	}
 	if err != nil {
-		logger.Errorf("error retrieving %s: %v", modelName, err)
-		ctx.JSON(http.StatusInternalServerError, gin.H{"error": "unexpected error of model " + modelName})
+		logger.Errorf("entity error: %v", err)
+		ctx.JSON(http.StatusInternalServerError, gin.H{"error": "internal service error"})
 		return true
 	}
 	return false

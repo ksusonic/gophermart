@@ -2,16 +2,18 @@ package main
 
 import (
 	"context"
+	"log"
+	"os"
+	"os/signal"
+	"syscall"
+	"time"
+
 	"github.com/ksusonic/gophermart/internal/accrual"
 	"github.com/ksusonic/gophermart/internal/auth"
 	"github.com/ksusonic/gophermart/internal/config"
 	"github.com/ksusonic/gophermart/internal/controller"
 	"github.com/ksusonic/gophermart/internal/database"
 	"github.com/ksusonic/gophermart/internal/server"
-	"os"
-	"os/signal"
-	"syscall"
-	"time"
 
 	"go.uber.org/zap"
 )
@@ -19,13 +21,16 @@ import (
 func main() {
 	cfg, err := config.NewConfig()
 	if err != nil {
-		panic(err)
+		log.Fatalf("unable to init config: %v", err)
 	}
 
 	logger := initLogger(cfg.Debug)
 	defer logger.Sync()
 
-	db := database.NewDB(cfg.DatabaseURI, logger.Named("orm"))
+	db, err := database.NewDB(cfg.DatabaseURI, logger.Named("orm"))
+	if err != nil {
+		log.Fatalf("unable to init DB: %v", err)
+	}
 
 	s := server.NewServer(cfg, logger)
 	s.MountController("/user", controller.NewUserController(
@@ -34,7 +39,7 @@ func main() {
 		logger.Named("user"),
 	))
 
-	accrual := accrual.NewWorker(
+	accrualWorker := accrual.NewWorker(
 		cfg.AccrualAddress,
 		db,
 		logger.Named("accrual"),
@@ -42,7 +47,7 @@ func main() {
 
 	ctx, cancel := context.WithCancel(context.Background())
 	srv := s.Run(cfg.Address)
-	go accrual.Run(ctx)
+	go accrualWorker.Run(ctx)
 
 	defer cancel()
 

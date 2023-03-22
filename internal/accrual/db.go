@@ -7,15 +7,14 @@ import (
 )
 
 type DB interface {
-	GetOrdersWithStatus(orders *[]models.Order, status ...models.OrderStatus) error
+	GetOrdersWithStatus(status ...models.OrderStatus) (*[]models.Order, error)
 	UpdateOrder(order *models.Order) error
 }
 
 func (w *Worker) getOrdersToCheck() ([]models.Order, error) {
-	var orders []models.Order
-	err := w.db.GetOrdersWithStatus(&orders, models.OrderStatusNew, models.OrderStatusProcessing)
+	orders, err := w.db.GetOrdersWithStatus(models.OrderStatusNew, models.OrderStatusProcessing)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get orders: %w", err)
 	}
-	return orders, nil
+	return *orders, nil
 }

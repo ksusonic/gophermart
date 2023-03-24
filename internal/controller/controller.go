@@ -124,7 +124,7 @@ func (c *UserController) loginHandler(ctx *gin.Context) {
 		return
 	}
 
-	expiresAt := time.Now().Add(120 * time.Minute)
+	expiresAt := time.Now().Add(defaultTokenTTL)
 	signedToken, err := c.auth.CreateSignedJWT(models.Claims{
 		UserID: existingUser.ID,
 	}, expiresAt)
